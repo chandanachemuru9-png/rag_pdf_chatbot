@@ -1,40 +1,50 @@
-from pypdf import PdfReader
 from sentence_transformers import SentenceTransformer
 import faiss
 import numpy as np
+from PyPDF2 import PdfReader
+import os
+import nltk
 
-print("Starting ingestion...")
+nltk.download('punkt')
+nltk.download('punkt_tab')
 
-# load embedding model
 model = SentenceTransformer("all-MiniLM-L6-v2")
 
-# read pdf
-reader = PdfReader("data/test.pdf")
+def process_pdf(file_path):
+    reader = PdfReader(file_path)
+    text = ""
+    for page in reader.pages:
+        if page.extract_text():
+            text += page.extract_text()
 
-text = ""
-for page in reader.pages:
-    text += page.extract_text()
+    # ✅ Sentence-aware chunking
+    sentences = nltk.sent_tokenize(text)
 
-print("PDF loaded")
+    # ✅ Chunk overlap - each chunk shares 2 sentences with the next
+    chunks = []
+    i = 0
+    current_chunk = ""
 
-# split into chunks
-chunk_size = 500
-chunks = [text[i:i+chunk_size] for i in range(0, len(text), chunk_size)]
+    while i < len(sentences):
+        current_chunk = ""
+        j = i
+        while j < len(sentences) and len(current_chunk) + len(sentences[j]) <= 500:
+            current_chunk += " " + sentences[j]
+            j += 1
+        if current_chunk:
+            chunks.append(current_chunk.strip())
+        # Move forward but overlap by 2 sentences
+        i = max(i + 1, j - 2)
 
-print("Chunks:", len(chunks))
+    print("Chunks:", len(chunks))
 
-# create embeddings
-embeddings = model.encode(chunks)
+    embeddings = model.encode(chunks)
+    dimension = embeddings.shape[1]
+    index = faiss.IndexFlatL2(dimension)
+    index.add(np.array(embeddings))
 
-# create vector index
-dimension = embeddings.shape[1]
-index = faiss.IndexFlatL2(dimension)
-index.add(np.array(embeddings))
+    os.makedirs("db", exist_ok=True)
+    faiss.write_index(index, "db/vector_store.index")
+    np.save("db/chunks.npy", chunks)
 
-# save vector database
-faiss.write_index(index, "vector_store.index")
-
-# save chunks
-np.save("chunks.npy", chunks)
-
-print("Vector database created successfully")
+    print("✅ Vector DB created with smart chunking + overlap")

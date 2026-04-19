@@ -1,57 +1,43 @@
-import warnings
-warnings.filterwarnings("ignore")
-
 from sentence_transformers import SentenceTransformer
 import faiss
 import numpy as np
-import ollama
+import os
+import requests
 
-# load embedding model
 model = SentenceTransformer("all-MiniLM-L6-v2")
 
-# load vector database
-index = faiss.read_index("vector_store.index")
+def ask_question(question, history=[]):
+    if not os.path.exists("db/vector_store.index") or not os.path.exists("db/chunks.npy"):
+        return "❌ No PDF processed yet. Please upload a PDF first."
 
-# load stored text chunks
-chunks = np.load("chunks.npy", allow_pickle=True)
+    index = faiss.read_index("db/vector_store.index")
+    chunks = np.load("db/chunks.npy", allow_pickle=True)
 
+    query_embedding = model.encode([question])
+    distances, indices = index.search(np.array(query_embedding), k=3)
 
-def ask_question(question):
+    threshold = 1.5
+    if distances[0][0] > threshold:
+        return "❌ This information is not found in the uploaded PDF."
 
-    question_embedding = model.encode([question])
+    results = [chunks[i] for i in indices[0] if i < len(chunks)]
+    context = "\n\n".join(results)
 
-    D, I = index.search(np.array(question_embedding), k=3)
+    history_text = ""
+    for msg in history[-4:]:
+        history_text += f"{msg['role'].capitalize()}: {msg['content']}\n"
 
-    context = ""
-    threshold = 1.2
+    prompt = f"""You are a helpful assistant. Answer using only the context below.
 
-    for dist, idx in zip(D[0], I[0]):
-        if dist < threshold:
-            context += chunks[idx] + "\n"
+Context: {context}
 
-    if context.strip() == "":
-        return "I could not find the answer in the document."
+{history_text}
+User: {question}
+Assistant:"""
 
-    prompt = f"""
-You are a document assistant.
-
-Answer the question ONLY using the information provided in the context.
-
-If the answer is NOT present in the context, reply with:
-"I could not find the answer in the document."
-
-Context:
-{context}
-
-Question:
-{question}
-
-Answer:
-"""
-
-    response = ollama.chat(
-        model="mistral",
-        messages=[{"role": "user", "content": prompt}]
-    )
-
-    return response["message"]["content"]
+    response = requests.post("http://localhost:11434/api/generate", json={
+        "model": "mistral:latest",
+        "prompt": prompt,
+        "stream": False
+    })
+    return response.json()["response"]

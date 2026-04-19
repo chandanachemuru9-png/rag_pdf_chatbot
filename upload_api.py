@@ -1,22 +1,25 @@
-from fastapi import FastAPI, UploadFile, File
+from fastapi import UploadFile, File
 import shutil
 import os
-import subprocess
+from ingest import process_pdf
 
-app = FastAPI()
+UPLOAD_DIR = "data"
 
-UPLOAD_FOLDER = "data"
+def save_file(file: UploadFile):
+    os.makedirs(UPLOAD_DIR, exist_ok=True)
 
-os.makedirs(UPLOAD_FOLDER, exist_ok=True)
-
-@app.post("/upload")
-async def upload_pdf(file: UploadFile = File(...)):
-
-    file_path = os.path.join(UPLOAD_FOLDER, file.filename)
+    file_path = os.path.join(UPLOAD_DIR, file.filename)
 
     with open(file_path, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
 
-    subprocess.run(["python", "ingest.py"])
+    return file_path
 
-    return {"message": "PDF uploaded and indexed"}
+
+def handle_upload(file: UploadFile):
+    file_path = save_file(file)
+
+    # process immediately
+    process_pdf(file_path)
+
+    return {"message": "File uploaded and processed"}
