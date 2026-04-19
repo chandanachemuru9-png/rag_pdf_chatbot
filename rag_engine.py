@@ -27,7 +27,7 @@ def ask_question(question, history=[]):
     for msg in history[-4:]:
         history_text += f"{msg['role'].capitalize()}: {msg['content']}\n"
 
-    prompt = f"""You are a helpful assistant. Answer using only the context below.
+    prompt = f"""You are a helpful assistant. Answer in 1-2 sentences only using the context below.
 
 Context: {context}
 
